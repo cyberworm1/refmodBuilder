@@ -1,0 +1,21 @@
+.venv/
+__pycache__/
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+.ruff_cache/
+.env
+.env.*
+!.env.example
+
+# Local review artifacts, generation workflows, and machine-specific shortcut.
+review/
+workflows/
+refmodBuilder.desktop
+
+# Source media and model/package artifacts belong outside the code repository.
+*.safetensors
+*.mp4
+*.mov
+*.wav
