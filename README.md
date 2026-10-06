@@ -1,6 +1,6 @@
 # refmodBuilder
 
-A native PySide6/Qt desktop app for creating one MiniMax H3 reference package per character, asset, or location. The palette, typography, form controls, and tabs match the local simpleGen app.
+A native PySide6/Qt desktop app for creating one MiniMax H3 reference package per character, asset, or location.
 
 ## Install and launch
 
@@ -47,7 +47,7 @@ The build verifies arm64 binaries, checks the bundle signature, runs an offline 
 
 Project saves are automatic after edits, with an explicit Save Project button. Removing a reference removes it from the package; the source copy is retained in the project folder. Each build preserves a workflow snapshot. On Linux, the project library is under `~/.local/share/refmodBuilder/projects/` and settings are under `~/.local/share/refmodBuilder/settings.json`. On macOS, these use the Application Support folder described above.
 
-On Linux, exports default to `~/comfy/ComfyUI/models/refmods/<type>/`. Settings can change the ComfyUI URL, ComfyUI folder, backend RefMod folder, local export folder, and VAE filenames.
+On Linux, exports default to `~/ComfyUI/models/refmods/<type>/`. Settings can change the ComfyUI URL, ComfyUI folder, backend RefMod folder, local export folder, and VAE filenames.
 
 ### Configuring a remote ComfyUI backend
 
@@ -55,11 +55,13 @@ Set the backend URL in Settings. This version transfers files through **mounted/
 
 Prepared input paths are sent relative to the backend's input folder, so a Mac mount path is never sent as a server filesystem path. Encoded members are read through the mounted RefMod folder and assembled into a package in the app's local export folder. To make the final package available for generation on the server, copy it to the backend's RefMod folder or choose a writable mount of that folder as the export destination. HTTP file upload/download and automatic share mounting are not implemented.
 
+The paths below use `~/ComfyUI` as a generic example. Set your actual installation and export folders in Settings.
+
 ## ComfyUI requirements
 
 Use a ComfyUI installation with native MiniMax H3 support, the H3 video/audio VAEs, and [MiniMaxH3Mod](https://github.com/Luisacaotica/ComfyUI-MiniMaxH3Mod) installed under its `custom_nodes` folder. The default local location is:
 
-`~/comfy/ComfyUI/custom_nodes/ComfyUI-MiniMaxH3Mod`
+`~/ComfyUI/custom_nodes/ComfyUI-MiniMaxH3Mod`
 
 Tested MiniMaxH3Mod revision: `f9462081e28794389b5a6c5067eb327412ad8ee7`.
 
