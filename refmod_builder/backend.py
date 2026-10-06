@@ -66,7 +66,7 @@ def ffmpeg():
         bundled = Path(sys._MEIPASS) / "bin/ffmpeg"
         if bundled.is_file():
             return str(bundled)
-    path = Path.home() / "comfy/ffmpeg/bin/ffmpeg"
+    path = Path.home() / ".local/bin/ffmpeg"
     for candidate in (path, Path("/opt/homebrew/bin/ffmpeg"), Path("/usr/local/bin/ffmpeg")):
         if candidate.is_file():
             return str(candidate)
