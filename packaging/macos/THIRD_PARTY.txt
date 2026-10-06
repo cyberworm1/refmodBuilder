@@ -18,5 +18,5 @@ https://ffmpeg.org/download.html
 This is an ad-hoc signed development build, not a Developer ID signed or
 Apple-notarized distribution. The independent .app bundle includes dynamically
 linked Qt libraries in Contents/Frameworks. Source for refmodBuilder and build
-instructions are on the macos-arm64 branch of:
+instructions are on the macos-intel and macos-arm64 branches of:
 https://github.com/cyberworm1/refmodBuilder

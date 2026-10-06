@@ -1,4 +1,4 @@
-"""Build a native Apple Silicon .app and ZIP on macOS."""
+"""Build a native Intel or Apple Silicon .app and ZIP on macOS."""
 import hashlib
 import importlib.metadata
 import json
@@ -17,8 +17,11 @@ def command(*args, **kwargs):
 
 
 def main():
-    if sys.platform != 'darwin' or platform.machine() != 'arm64':
-        raise SystemExit('Run this build with native arm64 Python on an Apple Silicon Mac.')
+    architecture = platform.machine()
+    if sys.platform != 'darwin' or architecture not in ('arm64', 'x86_64'):
+        raise SystemExit('Run this build with native arm64 or x86_64 Python on a Mac.')
+    minimum_macos = platform.mac_ver()[0].split('.')[0] + '.0'
+    os.environ['REFMOD_MACOS_MIN_VERSION'] = minimum_macos
     from PySide6.QtCore import Qt
     from PySide6.QtGui import QGuiApplication, QImage, QPainter
     from PySide6.QtSvg import QSvgRenderer
@@ -43,7 +46,7 @@ def main():
     command('iconutil', '-c', 'icns', iconset, '-o', stage / 'refmodBuilder.icns')
     shutil.copy2(get_ffmpeg_exe(), stage / 'ffmpeg')
     (stage / 'ffmpeg').chmod(0o755)
-    command('lipo', stage / 'ffmpeg', '-verify_arch', 'arm64')
+    command('lipo', stage / 'ffmpeg', '-verify_arch', architecture)
 
     # Preserve upstream license notices for the packaged runtime dependencies.
     notices = stage / 'licenses'
@@ -70,18 +73,19 @@ def main():
     command(sys.executable, '-m', 'PyInstaller', '--noconfirm', '--clean', ROOT / 'packaging/macos/refmodBuilder.spec')
     bundle = ROOT / 'dist/refmodBuilder.app'
     command('codesign', '--verify', '--deep', '--strict', bundle)
-    command('lipo', bundle / 'Contents/MacOS/refmodBuilder', '-verify_arch', 'arm64')
+    command('lipo', bundle / 'Contents/MacOS/refmodBuilder', '-verify_arch', architecture)
     # A stripped PATH verifies the bundle does not depend on Homebrew FFmpeg.
     env = dict(os.environ, PATH='/usr/bin:/bin:/usr/sbin:/sbin', QT_QPA_PLATFORM='offscreen')
     command(bundle / 'Contents/MacOS/refmodBuilder', '--smoke-test', env=env)
-    archive = ROOT / 'dist/refmodBuilder-0.1.1-macos-arm64.zip'
+    archive = ROOT / f'dist/refmodBuilder-0.1.1-macos-{architecture}.zip'
     if archive.exists():
         archive.unlink()
     command('ditto', '-c', '-k', '--sequesterRsrc', '--keepParent', bundle, archive)
     digest = hashlib.sha256(archive.read_bytes()).hexdigest()
     (archive.parent / (archive.name + '.sha256')).write_text(f'{digest}  {archive.name}\n')
     versions = {d.metadata['Name']: d.version for d in importlib.metadata.distributions()}
-    report = {'python': sys.version, 'platform': platform.platform(), 'architecture': platform.machine(),
+    report = {'python': sys.version, 'platform': platform.platform(), 'architecture': architecture,
+              'minimum_macos': minimum_macos,
               'packages': versions, 'artifact': archive.name, 'sha256': digest,
               'signing': 'ad-hoc (not Developer ID signed or notarized)'}
     (archive.parent / 'macos-build-info.json').write_text(json.dumps(report, indent=2))

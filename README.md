@@ -7,7 +7,7 @@ A native PySide6/Qt desktop app for creating one MiniMax H3 reference package pe
 Source installations require Linux or macOS, Python 3.11+, and FFmpeg on PATH (Homebrew FFmpeg is also discovered on macOS). Install the desktop app in its own environment:
 
 ```bash
-git clone --branch macos-arm64 https://github.com/cyberworm1/refmodBuilder.git
+git clone --branch macos-intel https://github.com/cyberworm1/refmodBuilder.git
 cd refmodBuilder
 python3.11 -m venv .venv
 .venv/bin/pip install -e .
@@ -16,24 +16,38 @@ python3.11 -m venv .venv
 
 The app has its own Python environment. It uses a configured ComfyUI server for encoding, and works offline for reference editing and project browsing. The default server remains `http://127.0.0.1:8188` on both platforms.
 
-## Apple Silicon desktop build
+## macOS desktop builds
 
-The `macos-arm64` branch adds a compiled `refmodBuilder.app`, packaged with Python, Qt, the app icon, and FFmpeg. Download the ZIP from the repository's macOS prerelease, unzip it, and move the app to Applications. No separate Python or FFmpeg installation is needed to run the bundle.
+The `macos-intel` branch builds a native Intel `refmodBuilder.app`, packaged with Python, Qt, the app icon, and FFmpeg. Download the matching ZIP from the repository's macOS prereleases, unzip it, and move the app to Applications. No separate Python or FFmpeg installation is needed to run the bundle.
 
-This build targets **Apple Silicon (arm64), macOS 26 or later**, matching the minimum OS of the build machine's Homebrew Python runtime. Intel Macs are not supported by this artifact. It is ad-hoc signed, not Developer ID signed or notarized. macOS may require approval in System Settings → Privacy & Security when opening a downloaded copy.
+| Build | Architecture | Minimum macOS | Branch |
+| --- | --- | --- | --- |
+| Intel | x86_64 | 12 (Monterey) | `macos-intel` |
+| Apple Silicon | arm64 | 26 | `macos-arm64` |
+
+These are separate native builds, not a universal binary. The Intel build is tested on macOS 12.7.6 with Python 3.13.12; the Apple Silicon build was tested on macOS 26.6.2 with Python 3.12.15. Both are ad-hoc signed, not Developer ID signed or notarized. macOS may require approval in Security & Privacy / Privacy & Security when opening a downloaded copy.
 
 Mac settings and projects are saved under `~/Library/Application Support/refmodBuilder/`. Exports default to `~/Documents/refmodBuilder/exports/`. The application bundle can be moved without moving or deleting projects.
 
-To reproduce the build on an Apple Silicon Mac:
+To reproduce the Intel build on a compatible Intel Mac:
 
 ```bash
-python3.12 -m venv .venv
-.venv/bin/pip install -e '.[dev,macos-build]'
+python3.13 -m venv .venv
+.venv/bin/pip install -e '.[dev,macos-build]' 'numpy==2.2.6'
+# Make the bundled FFmpeg available to source tests without a system installation.
+.venv/bin/python -c 'from pathlib import Path; from imageio_ffmpeg import get_ffmpeg_exe; p = Path(".venv/bin/ffmpeg"); p.exists() or p.symlink_to(get_ffmpeg_exe())'
+export PATH="$PWD/.venv/bin:$PATH"
 QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest -q
 QT_QPA_PLATFORM=offscreen .venv/bin/python tools/build_macos.py
 ```
 
-The build verifies arm64 binaries, checks the bundle signature, runs an offline packaged-app smoke test with Homebrew removed from PATH, and writes a ZIP, SHA-256 checksum, and dependency/version report into `dist/`. The smoke test creates only temporary data and submits no ComfyUI jobs.
+The build uses the active Python architecture (`x86_64` or `arm64`), sets the minimum macOS to the build host's major version, verifies binary architecture and the bundle signature, and runs an offline packaged-app smoke test with Homebrew removed from PATH. It writes a ZIP, SHA-256 checksum, and dependency/version report into `dist/`. Build on the oldest macOS version you intend to support. NumPy is used only by tests and is excluded from the application bundle; the Intel recipe pins a wheel compatible with Monterey.
+
+The smoke test creates only temporary data and submits no ComfyUI jobs. It can also be run with native Cocoa rendering:
+
+```bash
+QT_QPA_PLATFORM=cocoa dist/refmodBuilder.app/Contents/MacOS/refmodBuilder --smoke-test
+```
 
 ## Using the app
 
