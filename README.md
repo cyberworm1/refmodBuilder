@@ -76,3 +76,7 @@ Tests cover source preservation, save/reopen, ordering/removal, mixed image/audi
 Local media, RefMod packages, generation workflows, runtime records, and review screenshots are excluded from this repository. Package-creation workflows are constructed by `refmod_builder/backend.py`; no external workflow template is required.
 
 Upstream: https://github.com/Luisacaotica/ComfyUI-MiniMaxH3Mod
+
+## Maintenance
+
+See [the maintainer handoff](docs/MAINTAINER_HANDOFF.md) for architecture, branch and release status, operational constraints, validation, and future work. Coding agents should also read [AGENTS.md](AGENTS.md).
