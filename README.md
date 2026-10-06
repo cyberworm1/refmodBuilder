@@ -4,17 +4,36 @@ A native PySide6/Qt desktop app for creating one MiniMax H3 reference package pe
 
 ## Install and launch
 
-Requires Linux, Python 3.11+, and FFmpeg on PATH (or at `~/comfy/ffmpeg/bin/ffmpeg`). Install the desktop app in its own environment:
+Source installations require Linux or macOS, Python 3.11+, and FFmpeg on PATH (Homebrew FFmpeg is also discovered on macOS). Install the desktop app in its own environment:
 
 ```bash
-git clone https://github.com/cyberworm1/refmodBuilder.git
+git clone --branch macos-arm64 https://github.com/cyberworm1/refmodBuilder.git
 cd refmodBuilder
 python3.11 -m venv .venv
 .venv/bin/pip install -e .
 ./launch.sh
 ```
 
-The app has its own Python environment. It uses the existing local ComfyUI server for encoding, and works offline for reference editing and project browsing.
+The app has its own Python environment. It uses a configured ComfyUI server for encoding, and works offline for reference editing and project browsing. The default server remains `http://127.0.0.1:8188` on both platforms.
+
+## Apple Silicon desktop build
+
+The `macos-arm64` branch adds a compiled `refmodBuilder.app`, packaged with Python, Qt, the app icon, and FFmpeg. Download the ZIP from the repository's macOS prerelease, unzip it, and move the app to Applications. No separate Python or FFmpeg installation is needed to run the bundle.
+
+This build targets **Apple Silicon (arm64), macOS 26 or later**, matching the minimum OS of the build machine's Homebrew Python runtime. Intel Macs are not supported by this artifact. It is ad-hoc signed, not Developer ID signed or notarized. macOS may require approval in System Settings → Privacy & Security when opening a downloaded copy.
+
+Mac settings and projects are saved under `~/Library/Application Support/refmodBuilder/`. Exports default to `~/Documents/refmodBuilder/exports/`. The application bundle can be moved without moving or deleting projects.
+
+To reproduce the build on an Apple Silicon Mac:
+
+```bash
+python3.12 -m venv .venv
+.venv/bin/pip install -e '.[dev,macos-build]'
+QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest -q
+QT_QPA_PLATFORM=offscreen .venv/bin/python tools/build_macos.py
+```
+
+The build verifies arm64 binaries, checks the bundle signature, runs an offline packaged-app smoke test with Homebrew removed from PATH, and writes a ZIP, SHA-256 checksum, and dependency/version report into `dist/`. The smoke test creates only temporary data and submits no ComfyUI jobs.
 
 ## Using the app
 
@@ -26,13 +45,19 @@ The app has its own Python environment. It uses the existing local ComfyUI serve
 - Choose Full Reference or Compressed Reference, resolution, video-frame limit, and package token limit.
 - Build when the RefMod nodes are available. Exports receive unique filenames.
 
-Project saves are automatic after edits, with an explicit Save Project button. Removing a reference removes it from the package; the source copy is retained in the project folder. Each build preserves a workflow snapshot. The project library is under `~/.local/share/refmodBuilder/projects/`. Settings are under `~/.local/share/refmodBuilder/settings.json`.
+Project saves are automatic after edits, with an explicit Save Project button. Removing a reference removes it from the package; the source copy is retained in the project folder. Each build preserves a workflow snapshot. On Linux, the project library is under `~/.local/share/refmodBuilder/projects/` and settings are under `~/.local/share/refmodBuilder/settings.json`. On macOS, these use the Application Support folder described above.
 
-Exports default to `~/comfy/ComfyUI/models/refmods/<type>/`. Settings can change the local ComfyUI URL, ComfyUI folder, export folder, and VAE filenames. The URL and folder must refer to the same local installation.
+On Linux, exports default to `~/comfy/ComfyUI/models/refmods/<type>/`. Settings can change the ComfyUI URL, ComfyUI folder, backend RefMod folder, local export folder, and VAE filenames.
+
+### Configuring a remote ComfyUI backend
+
+Set the backend URL in Settings. This version transfers files through **mounted/shared folders**; changing the URL alone is insufficient. Mount the remote ComfyUI directory using your existing file-sharing setup, select that mount as **ComfyUI folder (local or mounted)**, and select its `models/refmods` folder as **Backend RefMod folder (local or mounted)**. For a backend with a custom RefMod root, mount and select that root instead. The ComfyUI mount needs write access to `input`; the RefMod mount needs read access to the encoded results.
+
+Prepared input paths are sent relative to the backend's input folder, so a Mac mount path is never sent as a server filesystem path. Encoded members are read through the mounted RefMod folder and assembled into a package in the app's local export folder. To make the final package available for generation on the server, copy it to the backend's RefMod folder or choose a writable mount of that folder as the export destination. HTTP file upload/download and automatic share mounting are not implemented.
 
 ## ComfyUI requirements
 
-Use a local ComfyUI installation with native MiniMax H3 support, the H3 video/audio VAEs, and [MiniMaxH3Mod](https://github.com/Luisacaotica/ComfyUI-MiniMaxH3Mod) installed under:
+Use a ComfyUI installation with native MiniMax H3 support, the H3 video/audio VAEs, and [MiniMaxH3Mod](https://github.com/Luisacaotica/ComfyUI-MiniMaxH3Mod) installed under its `custom_nodes` folder. The default local location is:
 
 `~/comfy/ComfyUI/custom_nodes/ComfyUI-MiniMaxH3Mod`
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+import sys
 import time
 import uuid
 from datetime import datetime
@@ -20,8 +21,8 @@ REQUIRED = ["MiniMaxH3RefModExtract", "MiniMaxH3RefModAudioExtract", "MiniMaxH3R
 
 def client(config):
     url = config["comfy_url"].rstrip("/")
-    if urlparse(url).hostname not in ("localhost", "127.0.0.1", "::1"):
-        raise ValueError("This version uses shared local files and requires a local ComfyUI URL")
+    if urlparse(url).scheme not in ("http", "https") or not urlparse(url).hostname:
+        raise ValueError("Enter a valid ComfyUI HTTP or HTTPS URL")
     return httpx.Client(base_url=url, timeout=15, trust_env=False)
 
 
@@ -61,8 +62,18 @@ def defaults(schema):
 
 
 def ffmpeg():
+    if getattr(sys, "frozen", False):
+        bundled = Path(sys._MEIPASS) / "bin/ffmpeg"
+        if bundled.is_file():
+            return str(bundled)
     path = Path.home() / "comfy/ffmpeg/bin/ffmpeg"
-    return str(path) if path.exists() else shutil.which("ffmpeg") or "ffmpeg"
+    for candidate in (path, Path("/opt/homebrew/bin/ffmpeg"), Path("/usr/local/bin/ffmpeg")):
+        if candidate.is_file():
+            return str(candidate)
+    found = shutil.which("ffmpeg")
+    if not found:
+        raise ValueError("FFmpeg was not found. Install FFmpeg or use the packaged macOS app.")
+    return found
 
 
 def transcode(source, output, ref, audio=False):
@@ -88,7 +99,10 @@ def transcode(source, output, ref, audio=False):
 
 
 def prepare(project, config, build_id, progress):
-    stage = Path(config["comfy_dir"]) / "input" / "refmodBuilder" / build_id
+    input_dir = Path(config["comfy_dir"]).expanduser() / "input"
+    if not input_dir.is_dir():
+        raise ValueError("ComfyUI's input folder is unavailable. Set the local ComfyUI folder or mount the remote ComfyUI folder and select it in Settings.")
+    stage = input_dir / "refmodBuilder" / build_id
     stage.mkdir(parents=True, exist_ok=False)
     members = []
     for index, ref in enumerate(project["references"]):
@@ -105,10 +119,10 @@ def prepare(project, config, build_id, progress):
                     width, height = image.size
                     image = image.crop((round(x*width), round(y*height), round((x+w)*width), round((y+h)*height)))
                 image.save(dest)
-            members.append({"kind": "visual", "folder": str(folder), "name": ref["name"], "notes": ref["notes"]})
+            members.append({"kind": "visual", "folder": folder.relative_to(input_dir).as_posix(), "name": ref["name"], "notes": ref["notes"]})
         elif ref["kind"] == "video":
             transcode(source, folder / "reference.mp4", ref)
-            members.append({"kind": "visual", "folder": str(folder), "name": ref["name"], "notes": ref["notes"]})
+            members.append({"kind": "visual", "folder": folder.relative_to(input_dir).as_posix(), "name": ref["name"], "notes": ref["notes"]})
         if ref["kind"] == "audio" or ref.get("soundtrack"):
             dest = stage / f"audio_{index:03d}.wav"
             transcode(source, dest, ref, audio=True)
@@ -117,7 +131,7 @@ def prepare(project, config, build_id, progress):
                 duration = wav.getnframes() / wav.getframerate()
             if not 0.025 <= duration <= 600:
                 raise ValueError(f"Audio '{ref['name']}' must be between 0.025 and 600 seconds; trim it first")
-            members.append({"kind": "audio", "file": str(dest.relative_to(Path(config["comfy_dir"]) / "input")),
+            members.append({"kind": "audio", "file": dest.relative_to(input_dir).as_posix(),
                             "seconds": duration, "name": ref["name"], "notes": ref["notes"]})
     return members
 
@@ -161,14 +175,15 @@ def build(project, config, progress):
     progress("Checking ComfyUI capabilities…")
     connection = check_connection(config)
     if connection["missing"]:
-        raise ValueError("MiniMaxH3Mod is not loaded in the running ComfyUI. Its files are installed; a user-authorized restart is needed. No job was submitted.")
+        raise ValueError("Required nodes are unavailable: " + ", ".join(connection["missing"]) + ". Install MiniMaxH3Mod on the backend and restart ComfyUI when safe. No job was submitted.")
     build_id = uuid.uuid4().hex
     members = prepare(project, config, build_id, progress)
     graph, output_nodes = make_graph(project, config, connection["schemas"], members, build_id)
     destination = Path(config["export_dir"]) / project["kind"].lower() / (slug(project["name"]) + "_" + datetime.now().strftime("%Y%m%d_%H%M%S") + "_" + build_id[:6] + ".safetensors")
     project["job"] = {"build_id": build_id, "status": "submission_unknown", "output_nodes": output_nodes,
                       "destination": str(destination), "prompt_id": None, "comfy_url": config["comfy_url"],
-                      "name": project["name"], "token_limit": project["token_limit"]}
+                      "name": project["name"], "token_limit": project["token_limit"],
+                      "refmod_dir": config.get("refmod_dir", str(Path(config["comfy_dir"]) / "models/refmods"))}
     atomic_json(project_dir(project) / "builds" / f"{build_id}.json", {"graph": graph, "project": project})
     save_project(project)
     progress("Adding package build to the end of ComfyUI's queue…")
@@ -210,11 +225,16 @@ def finish(project, config, progress):
         else:
             raise ValueError("Still waiting after 24 hours. Reopen the project to resume monitoring.")
     paths = []
-    for node_id in job["output_nodes"]:
+    for index, node_id in enumerate(job["output_nodes"]):
         values = record.get("outputs", {}).get(node_id, {}).get("text", [])
-        if len(values) != 1 or not Path(values[0]).is_file():
+        if len(values) != 1:
             raise ValueError("Completed job did not return a readable RefMod for every reference")
-        paths.append(values[0])
+        path = Path(values[0])
+        if not path.is_file() and job.get("refmod_dir"):
+            path = Path(job["refmod_dir"]).expanduser() / "refmodBuilder_work" / job["build_id"] / f"member_{index:03d}.safetensors"
+        if not path.is_file():
+            raise ValueError("The encoded RefMod is not accessible locally. Mount the backend's RefMod folder before resuming this build.")
+        paths.append(path)
     job["status"] = "assembling"
     save_project(project)
     progress("Assembling and validating the final package…")

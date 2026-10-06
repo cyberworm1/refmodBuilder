@@ -196,10 +196,59 @@ def test_prepare_image_crop_and_audio_trim(library):
     project["references"][0]["crop"] = [0, 0, 0.5, 0.5]
     project["references"][1].update(start=0.5, end=1.5)
     config = dict(core.settings(), comfy_dir=str(library / "comfy"))
+    (library / "comfy/input").mkdir(parents=True)
     members = backend.prepare(project, config, "test", lambda _: None)
-    with Image.open(Path(members[0]["folder"]) / "reference.png") as cropped:
+    assert not Path(members[0]["folder"]).is_absolute()
+    with Image.open(library / "comfy/input" / members[0]["folder"] / "reference.png") as cropped:
         assert cropped.size == (50, 100)
     assert members[1]["seconds"] == pytest.approx(1.0)
     with wave.open(str(library / "comfy/input" / members[1]["file"]), "rb") as wav:
         assert wav.getnchannels() == 2
         assert wav.getframerate() == 32000
+
+
+def test_remote_url_can_be_configured():
+    with backend.client({'comfy_url': 'http://192.0.2.10:8188'}) as api:
+        assert str(api.base_url) == 'http://192.0.2.10:8188'
+    with pytest.raises(ValueError, match='HTTP'):
+        backend.client({'comfy_url': 'file:///tmp/not-a-server'})
+
+
+def test_missing_mount_does_not_create_fake_comfy_folder(library):
+    project = core.new_project()
+    missing = library / 'not-mounted'
+    with pytest.raises(ValueError, match='mount'):
+        backend.prepare(project, {'comfy_dir': str(missing)}, 'test', lambda _: None)
+    assert not missing.exists()
+
+
+def test_remote_result_resolves_through_mounted_refmod_folder(library, monkeypatch):
+    import httpx
+    mounted = library / 'mounted-refmods'
+    source = mounted / 'refmodBuilder_work/build-id/member_000.safetensors'
+    source.parent.mkdir(parents=True)
+    reference(source, bundle=True)
+    project = core.new_project()
+    project['job'] = {'status': 'queued', 'comfy_url': 'http://192.0.2.10:8188',
+                      'prompt_id': 'remote-job', 'build_id': 'build-id', 'output_nodes': ['3'],
+                      'refmod_dir': str(mounted), 'destination': str(library / 'local-export.safetensors'),
+                      'name': 'Remote export', 'token_limit': 100}
+    def handle(request):
+        assert request.method == 'GET'
+        assert request.url.path == '/history/remote-job'
+        return httpx.Response(200, json={'remote-job': {'status': {'completed': True, 'status_str': 'success'},
+            'outputs': {'3': {'text': ['/server-only/models/refmods/refmodBuilder_work/build-id/member_000.safetensors']}}}})
+    monkeypatch.setattr(backend, 'client', lambda config: httpx.Client(transport=httpx.MockTransport(handle), base_url=config['comfy_url']))
+    result = backend.finish(project, core.settings(), lambda _: None)
+    assert result['job']['status'] == 'complete'
+    assert Path(result['exports'][0]['path']).is_file()
+    assert result['exports'][0]['tokens'] == 6
+
+
+def test_packaged_ffmpeg_preferred(tmp_path, monkeypatch):
+    binary = tmp_path / 'bin/ffmpeg'
+    binary.parent.mkdir()
+    binary.write_bytes(b'test')
+    monkeypatch.setattr(backend.sys, 'frozen', True, raising=False)
+    monkeypatch.setattr(backend.sys, '_MEIPASS', str(tmp_path), raising=False)
+    assert backend.ffmpeg() == str(binary)

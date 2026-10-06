@@ -1,0 +1,22 @@
+refmodBuilder macOS bundle - third-party runtime notices
+
+Python: https://www.python.org/ (Python Software Foundation License)
+Qt / PySide6 / Shiboken: https://www.qt.io/qt-for-python (LGPLv3/GPLv3 and commercial licensing; see included notices)
+Pillow: https://python-pillow.org/ (HPND)
+HTTPX and its dependencies: https://www.python-httpx.org/ (see installed distribution notices)
+
+FFmpeg is bundled from imageio-ffmpeg 0.6.0. This executable includes GPL-enabled
+components (including x264); see its -L and -buildconf output for its precise
+configuration and applicable license. The imageio wrapper uses the BSD-2-Clause
+license; that does not replace FFmpeg's own license.
+Binary distribution and corresponding build scripts/source references:
+https://github.com/imageio/imageio-ffmpeg/tree/v0.6.0
+https://github.com/BtbN/FFmpeg-Builds
+https://ffmpeg.org/legal.html
+https://ffmpeg.org/download.html
+
+This is an ad-hoc signed development build, not a Developer ID signed or
+Apple-notarized distribution. The independent .app bundle includes dynamically
+linked Qt libraries in Contents/Frameworks. Source for refmodBuilder and build
+instructions are on the macos-arm64 branch of:
+https://github.com/cyberworm1/refmodBuilder

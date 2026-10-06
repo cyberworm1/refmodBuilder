@@ -5,13 +5,14 @@ import os
 import re
 import shutil
 import struct
+import sys
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
 from PIL import Image, ImageOps
 
-DATA = Path.home() / ".local/share/refmodBuilder"
+DATA = Path.home() / ("Library/Application Support/refmodBuilder" if sys.platform == "darwin" else ".local/share/refmodBuilder")
 LIBRARY = DATA / "projects"
 IMAGE_EXT = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tiff"}
 VIDEO_EXT = {".mp4", ".mov", ".mkv", ".webm", ".avi", ".m4v"}
@@ -33,12 +34,16 @@ def atomic_json(path: Path, value: dict):
 
 def settings():
     defaults = {"comfy_url": "http://127.0.0.1:8188", "comfy_dir": str(Path.home() / "comfy/ComfyUI"),
-                "export_dir": str(Path.home() / "comfy/ComfyUI/models/refmods"),
+                "export_dir": str(Path.home() / ("Documents/refmodBuilder/exports" if sys.platform == "darwin" else "comfy/ComfyUI/models/refmods")),
+                "refmod_dir": str(Path.home() / "comfy/ComfyUI/models/refmods"),
                 "video_vae": "minimax_h3_video_vae_fp16.safetensors",
                 "audio_vae": "minimax_h3_audio_vae_fp32.safetensors"}
     path = DATA / "settings.json"
     if path.exists():
-        defaults.update(json.loads(path.read_text()))
+        saved = json.loads(path.read_text())
+        defaults.update(saved)
+        if "refmod_dir" not in saved:
+            defaults["refmod_dir"] = str(Path(defaults["comfy_dir"]) / "models/refmods")
     return defaults
 
 

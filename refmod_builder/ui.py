@@ -690,11 +690,12 @@ class Window(QMainWindow):
         layout.addWidget(muted("ComfyUI runs separately. This app never restarts it, interrupts jobs, or clears its queue."))
         form = QFormLayout()
         fields = {}
-        for key, label in [("comfy_url", "Local ComfyUI URL"), ("comfy_dir", "ComfyUI folder"), ("export_dir", "Export folder"), ("video_vae", "Video VAE"), ("audio_vae", "Audio VAE")]:
+        for key, label in [("comfy_url", "ComfyUI URL"), ("comfy_dir", "ComfyUI folder (local or mounted)"), ("refmod_dir", "Backend RefMod folder (local or mounted)"), ("export_dir", "Export folder on this computer"), ("video_vae", "Video VAE"), ("audio_vae", "Audio VAE")]:
             field = QLineEdit(self.config[key])
             form.addRow(label, field)
             fields[key] = field
         layout.addLayout(form)
+        layout.addWidget(muted("For a remote backend, mount its ComfyUI and RefMod folders here. The URL connects to the server; the mounted folders transfer references and encoded results. Exports are saved on this computer."))
         layout.addWidget(muted("Project library: " + str(LIBRARY)))
         layout.addWidget(muted("Audio reference support does not guarantee voice identity or synchronized generation."))
         buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
