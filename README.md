@@ -1,10 +1,10 @@
 # refmodBuilder
 
-A native PySide6/Qt desktop app for creating one MiniMax H3 reference package per character, asset, or location. The palette, typography, form controls, and tabs match the local simpleGen app.
+A native PySide6/Qt desktop app for creating one MiniMax H3 reference package per character, asset, or location.
 
 ## Install and launch
 
-Requires Linux, Python 3.11+, and FFmpeg on PATH (or at `~/comfy/ffmpeg/bin/ffmpeg`). Install the desktop app in its own environment:
+Requires Linux, Python 3.11+, and FFmpeg on PATH. Install the desktop app in its own environment:
 
 ```bash
 git clone https://github.com/cyberworm1/refmodBuilder.git
@@ -28,13 +28,15 @@ The app has its own Python environment. It uses the existing local ComfyUI serve
 
 Project saves are automatic after edits, with an explicit Save Project button. Removing a reference removes it from the package; the source copy is retained in the project folder. Each build preserves a workflow snapshot. The project library is under `~/.local/share/refmodBuilder/projects/`. Settings are under `~/.local/share/refmodBuilder/settings.json`.
 
-Exports default to `~/comfy/ComfyUI/models/refmods/<type>/`. Settings can change the local ComfyUI URL, ComfyUI folder, export folder, and VAE filenames. The URL and folder must refer to the same local installation.
+Exports default to `~/ComfyUI/models/refmods/<type>/`. Settings can change the local ComfyUI URL, ComfyUI folder, export folder, and VAE filenames. The URL and folder must refer to the same local installation.
+
+The paths below use `~/ComfyUI` as a generic example. Set your actual installation and export folders in Settings.
 
 ## ComfyUI requirements
 
 Use a local ComfyUI installation with native MiniMax H3 support, the H3 video/audio VAEs, and [MiniMaxH3Mod](https://github.com/Luisacaotica/ComfyUI-MiniMaxH3Mod) installed under:
 
-`~/comfy/ComfyUI/custom_nodes/ComfyUI-MiniMaxH3Mod`
+`~/ComfyUI/custom_nodes/ComfyUI-MiniMaxH3Mod`
 
 Tested MiniMaxH3Mod revision: `f9462081e28794389b5a6c5067eb327412ad8ee7`.
 

@@ -61,7 +61,7 @@ def defaults(schema):
 
 
 def ffmpeg():
-    path = Path.home() / "comfy/ffmpeg/bin/ffmpeg"
+    path = Path.home() / ".local/bin/ffmpeg"
     return str(path) if path.exists() else shutil.which("ffmpeg") or "ffmpeg"
 
 

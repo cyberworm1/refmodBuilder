@@ -32,8 +32,8 @@ def atomic_json(path: Path, value: dict):
 
 
 def settings():
-    defaults = {"comfy_url": "http://127.0.0.1:8188", "comfy_dir": str(Path.home() / "comfy/ComfyUI"),
-                "export_dir": str(Path.home() / "comfy/ComfyUI/models/refmods"),
+    defaults = {"comfy_url": "http://127.0.0.1:8188", "comfy_dir": str(Path.home() / "ComfyUI"),
+                "export_dir": str(Path.home() / "ComfyUI/models/refmods"),
                 "video_vae": "minimax_h3_video_vae_fp16.safetensors",
                 "audio_vae": "minimax_h3_audio_vae_fp32.safetensors"}
     path = DATA / "settings.json"
