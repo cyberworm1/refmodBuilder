@@ -19,8 +19,8 @@ from PySide6.QtWidgets import (
 )
 
 from . import backend
-from .core import (DATA, LIBRARY, IMAGE_EXT, VIDEO_EXT, AUDIO_EXT, atomic_json,
-                   import_media, load_project, new_project, project_dir,
+from .core import (DATA, LIBRARY, IMAGE_EXT, VIDEO_EXT, AUDIO_EXT, ProjectConflict, atomic_json,
+                   disk_revision, import_media, load_project, new_project, project_dir,
                    save_project, settings, source_path)
 from .theme import STYLE
 
@@ -144,6 +144,11 @@ class Window(QMainWindow):
         self.autosave.setSingleShot(True)
         self.autosave.setInterval(700)
         self.autosave.timeout.connect(self.save)
+        # Agents using the MCP server may edit the open project; pick up their saves.
+        self.watch = QTimer(self)
+        self.watch.setInterval(1500)
+        self.watch.timeout.connect(self.reload_if_changed)
+        self.watch.start()
         self.load_fields()
         QTimer.singleShot(100, self.check)
 
@@ -398,8 +403,29 @@ class Window(QMainWindow):
             save_project(self.project)
             self.status.setText("Project saved locally.")
             self.refresh_library()
+        except ProjectConflict:
+            self.reload_project()
+            self.error("This project was changed by an agent or another window while you edited it. It has been reloaded; reapply your last edit.")
         except (OSError, ValueError) as exc:
             self.error(str(exc))
+
+    def reload_project(self):
+        path = project_dir(self.project) / "project.json"
+        if path.exists():
+            self.project = load_project(path)
+            self.load_fields()
+            self.refresh_library()
+
+    def reload_if_changed(self):
+        if self.worker or self.loading or self.autosave.isActive() or QApplication.activeModalWidget():
+            return
+        try:
+            revision = disk_revision(self.project)
+            if revision is not None and revision != self.project.get("revision", 0):
+                self.reload_project()
+                self.status.setText("Project updated by an agent or another window.")
+        except (OSError, ValueError) as exc:
+            self.status.setText(str(exc))
 
     def load_fields(self):
         self.loading = True

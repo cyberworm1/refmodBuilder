@@ -44,6 +44,21 @@ Install the extension's requirements in ComfyUI's own environment and provide Op
 
 The app never restarts ComfyUI, interrupts jobs, clears its queue, or unloads models. A build is appended to the normal queue. **Stop monitoring** stops only this app's monitoring; ComfyUI continues its job. Reopen the project and choose **Resume build** to collect the result. A saved prompt ID prevents automatic duplicate submissions. If a network failure leaves submission outcome unknown, inspect ComfyUI history before retrying; this version deliberately blocks automatic resubmission.
 
+## Agent access (MCP)
+
+An optional local [Model Context Protocol](https://modelcontextprotocol.io) server lets agents such as Claude Code work with the same project library as the desktop app. Install the extra and register the command with your MCP client:
+
+```bash
+.venv/bin/pip install -e '.[mcp]'
+claude mcp add refmod-builder -- "$PWD/.venv/bin/refmod-builder-mcp"
+```
+
+The server runs over stdio only and opens no network port. Agents can list and inspect projects, create projects, import local media, edit package settings and references (rename, notes, trim, crop, soundtrack, order, removal), validate, check the ComfyUI connection, and read package metadata. They cannot delete projects, source copies, or exports, or change Settings.
+
+`submit_build` refuses to queue work unless called with `confirm=true`, and reports ComfyUI's queue depth when it refuses; agents are instructed to ask the user first. Submission follows the desktop app's rules: it appends to the queue and returns immediately with a prompt ID. The agent calls `build_status` to check once, then `collect_build` to assemble the package when ComfyUI has finished. An unknown submission outcome still blocks resubmission.
+
+The desktop app can stay open. It reloads the open project when an agent saves it. If both edit at once, the later save is refused instead of overwriting, and the window reloads the agent's version. A per-project lock prevents a window and an agent from submitting or assembling the same build simultaneously.
+
 ## Encoding and files
 
 Each source reference is prepared in a unique `ComfyUI/input/refmodBuilder/<build-id>/` folder. Images are orientation-corrected and cropped. Trimmed videos are encoded as silent H.264 at 24 fps; selected audio is prepared separately as 32 kHz stereo WAV. Originals remain intact.
@@ -67,11 +82,11 @@ Unique export names and atomic publication prevent overwriting previous packages
 
 ```bash
 python3.11 -m venv .venv
-.venv/bin/pip install -e . pytest numpy safetensors
+.venv/bin/pip install -e '.[mcp]' pytest numpy safetensors
 QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest -q
 ```
 
-Tests cover source preservation, save/reopen, ordering/removal, mixed image/audio bundle interoperability with safetensors, BF16 byte preservation, truncated input rejection, token-limit failures, export overwrite prevention, image preparation and audio trimming via FFmpeg, independent member workflow construction, queue append behavior, completion collection, missing-node handling, and ambiguous-submission protection.
+Tests cover source preservation, save/reopen, ordering/removal, mixed image/audio bundle interoperability with safetensors, BF16 byte preservation, truncated input rejection, token-limit failures, export overwrite prevention, image preparation and audio trimming via FFmpeg, independent member workflow construction, queue append behavior, completion collection, missing-node handling, and ambiguous-submission protection. MCP tests cover tool registration, a client session, agent editing, confirmation before submission, submit/status/collect against a mocked ComfyUI, concurrent-edit conflicts, build locking, and the window reloading agent edits. They are skipped if the `mcp` extra is not installed.
 
 Local media, RefMod packages, generation workflows, runtime records, and review screenshots are excluded from this repository. Package-creation workflows are constructed by `refmod_builder/backend.py`; no external workflow template is required.
 

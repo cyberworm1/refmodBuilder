@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import fcntl
 import json
 import os
 import re
 import shutil
 import struct
 import uuid
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -16,6 +18,11 @@ LIBRARY = DATA / "projects"
 IMAGE_EXT = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tiff"}
 VIDEO_EXT = {".mp4", ".mov", ".mkv", ".webm", ".avi", ".m4v"}
 AUDIO_EXT = {".wav", ".mp3", ".flac", ".ogg", ".m4a", ".aac", ".opus"}
+PENDING = ("queued", "submitted", "assembling", "submission_unknown")
+
+
+class ProjectConflict(ValueError):
+    pass
 
 
 def atomic_json(path: Path, value: dict):
@@ -55,9 +62,36 @@ def project_dir(project):
     return LIBRARY / identifier
 
 
+@contextmanager
+def project_lock(project, name, wait=True):
+    """Serialize work on one project across the desktop app, agents, and threads."""
+    folder = project_dir(project)
+    folder.mkdir(parents=True, exist_ok=True)
+    with (folder / f".{name}.lock").open("a") as stream:
+        try:
+            fcntl.flock(stream, fcntl.LOCK_EX | (0 if wait else fcntl.LOCK_NB))
+        except BlockingIOError:
+            raise ValueError("Another refmodBuilder window or agent is building this project. Try again when it finishes.") from None
+        yield
+
+
+def disk_revision(project):
+    path = project_dir(project) / "project.json"
+    return json.loads(path.read_text()).get("revision", 0) if path.exists() else None
+
+
+def check_revision(project):
+    current = disk_revision(project)
+    if current is not None and current != project.get("revision", 0):
+        raise ProjectConflict("This project was changed by another refmodBuilder window or agent. Reload it and reapply the edit.")
+
+
 def save_project(project):
-    project["updated"] = datetime.now(timezone.utc).isoformat()
-    atomic_json(project_dir(project) / "project.json", project)
+    with project_lock(project, "save"):
+        check_revision(project)
+        changes = {"revision": project.get("revision", 0) + 1, "updated": datetime.now(timezone.utc).isoformat()}
+        atomic_json(project_dir(project) / "project.json", dict(project, **changes))
+        project.update(changes)
 
 
 def load_project(path):
@@ -79,15 +113,22 @@ def source_path(project, ref):
 
 
 def import_media(project, paths):
-    imported = []
-    folder = project_dir(project) / "sources"
-    folder.mkdir(parents=True, exist_ok=True)
+    imported, sources = [], []
     for item in paths:
         path = Path(item)
         suffix = path.suffix.lower()
         kind = "image" if suffix in IMAGE_EXT else "video" if suffix in VIDEO_EXT else "audio" if suffix in AUDIO_EXT else None
         if not kind:
             raise ValueError(f"Unsupported media: {path.name}")
+        if not path.is_file():
+            raise ValueError(f"Media file not found: {path}")
+        sources.append((path, suffix, kind))
+    # Check limits before copying so a rejected import leaves no orphaned source copies.
+    if len(project["references"]) + len(sources) > 128:
+        raise ValueError("A project supports up to 128 source references")
+    folder = project_dir(project) / "sources"
+    folder.mkdir(parents=True, exist_ok=True)
+    for path, suffix, kind in sources:
         identifier = uuid.uuid4().hex
         dest = folder / (identifier + suffix)
         shutil.copy2(path, dest)
@@ -98,8 +139,6 @@ def import_media(project, paths):
                 oriented = ImageOps.exif_transpose(image)
                 ref["width"], ref["height"] = oriented.size
         imported.append(ref)
-    if len(project["references"]) + len(imported) > 128:
-        raise ValueError("A project supports up to 128 source references")
     project["references"].extend(imported)
     save_project(project)
     return project

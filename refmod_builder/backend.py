@@ -12,8 +12,9 @@ from urllib.parse import urlparse
 import httpx
 from PIL import Image, ImageOps
 
-from .core import (atomic_json, project_dir, repack_bundle, save_project, slug,
-                   source_path, validate_project)
+from .core import (PENDING, ProjectConflict, atomic_json, bundle_info, check_revision,
+                   load_project, project_dir, project_lock, repack_bundle, save_project,
+                   slug, source_path, validate_project)
 
 REQUIRED = ["MiniMaxH3RefModExtract", "MiniMaxH3RefModAudioExtract", "MiniMaxH3RefModFolderLoader", "MiniMaxH3RefModBundleSave", "VAELoader", "LoadAudio"]
 
@@ -155,81 +156,112 @@ def make_graph(project, config, schemas, members, build_id):
 
 
 def build(project, config, progress):
-    if project.get("job") and project["job"].get("status") in ("queued", "submitted", "assembling", "submission_unknown"):
-        return finish(project, config, progress)
-    validate_project(project)
-    progress("Checking ComfyUI capabilities…")
-    connection = check_connection(config)
-    if connection["missing"]:
-        raise ValueError("MiniMaxH3Mod is not loaded in the running ComfyUI. Its files are installed; a user-authorized restart is needed. No job was submitted.")
-    build_id = uuid.uuid4().hex
-    members = prepare(project, config, build_id, progress)
-    graph, output_nodes = make_graph(project, config, connection["schemas"], members, build_id)
-    destination = Path(config["export_dir"]) / project["kind"].lower() / (slug(project["name"]) + "_" + datetime.now().strftime("%Y%m%d_%H%M%S") + "_" + build_id[:6] + ".safetensors")
-    project["job"] = {"build_id": build_id, "status": "submission_unknown", "output_nodes": output_nodes,
-                      "destination": str(destination), "prompt_id": None, "comfy_url": config["comfy_url"],
-                      "name": project["name"], "token_limit": project["token_limit"]}
-    atomic_json(project_dir(project) / "builds" / f"{build_id}.json", {"graph": graph, "project": project})
-    save_project(project)
-    progress("Adding package build to the end of ComfyUI's queue…")
-    with client(config) as api:
-        # Never set front/number, interrupt, clear the queue, or manage models.
-        response = api.post("/prompt", json={"prompt": graph, "client_id": "refmodBuilder-" + build_id})
-        if response.is_error:
-            project["job"]["status"] = "failed"
-            save_project(project)
-            raise ValueError("ComfyUI rejected the workflow: " + response.text[:2000])
-        result = response.json()
-        if "prompt_id" not in result:
-            raise ValueError("No prompt ID returned; inspect ComfyUI history before retrying")
-        project["job"].update(prompt_id=result["prompt_id"], status="queued")
-        save_project(project)
+    """Submit a new build, or resume a pending one, and wait for the package."""
+    if not (project.get("job") and project["job"].get("status") in PENDING):
+        submit(project, config, progress)
     return finish(project, config, progress)
 
 
-def finish(project, config, progress):
+def submit(project, config, progress):
+    """Prepare references and append one encoding prompt to ComfyUI's queue without waiting for it."""
+    with project_lock(project, "build", wait=False):
+        check_revision(project)
+        if project.get("job") and project["job"].get("status") in PENDING:
+            raise ValueError("This project already has a pending build. Resume or check that build instead of submitting another.")
+        validate_project(project)
+        progress("Checking ComfyUI capabilities…")
+        connection = check_connection(config)
+        if connection["missing"]:
+            raise ValueError("MiniMaxH3Mod is not loaded in the running ComfyUI. Its files are installed; a user-authorized restart is needed. No job was submitted.")
+        build_id = uuid.uuid4().hex
+        members = prepare(project, config, build_id, progress)
+        graph, output_nodes = make_graph(project, config, connection["schemas"], members, build_id)
+        destination = Path(config["export_dir"]) / project["kind"].lower() / (slug(project["name"]) + "_" + datetime.now().strftime("%Y%m%d_%H%M%S") + "_" + build_id[:6] + ".safetensors")
+        project["job"] = {"build_id": build_id, "status": "submission_unknown", "output_nodes": output_nodes,
+                          "destination": str(destination), "prompt_id": None, "comfy_url": config["comfy_url"],
+                          "name": project["name"], "token_limit": project["token_limit"]}
+        atomic_json(project_dir(project) / "builds" / f"{build_id}.json", {"graph": graph, "project": project})
+        save_project(project)
+        progress("Adding package build to the end of ComfyUI's queue…")
+        with client(config) as api:
+            # Never set front/number, interrupt, clear the queue, or manage models.
+            response = api.post("/prompt", json={"prompt": graph, "client_id": "refmodBuilder-" + build_id})
+            if response.is_error:
+                project["job"].update(status="failed", error="ComfyUI rejected the workflow: " + response.text[:2000])
+                save_project(project)
+                raise ValueError(project["job"]["error"])
+            result = response.json()
+            if "prompt_id" not in result:
+                raise ValueError("No prompt ID returned; inspect ComfyUI history before retrying")
+            project["job"].update(prompt_id=result["prompt_id"], status="queued")
+            save_project(project)
+    return project
+
+
+def poll(project, config):
+    """Check this project's own prompt once. Returns its history record when complete, otherwise None."""
     job = project["job"]
-    config = dict(config, comfy_url=job["comfy_url"])
     if not job.get("prompt_id"):
         raise ValueError("Submission outcome is unknown. Check ComfyUI history before starting another build; this project will not automatically resubmit.")
-    progress("Waiting for this package's ComfyUI job. Existing jobs continue normally…")
-    with client(config) as api:
-        for _ in range(43200):
-            progress("Waiting for this package's ComfyUI job. Existing jobs continue normally…")
-            response = api.get(f"/history/{job['prompt_id']}")
-            response.raise_for_status()
-            record = response.json().get(job["prompt_id"])
-            if record:
-                if record.get("status", {}).get("status_str") == "error":
-                    job["status"] = "failed"
-                    save_project(project)
-                    raise ValueError("ComfyUI encoding failed: " + json.dumps(record.get("status", {}).get("messages", []))[-2200:])
-                if record.get("status", {}).get("completed"):
-                    break
-            time.sleep(2)
+    with client(dict(config, comfy_url=job["comfy_url"])) as api:
+        response = api.get(f"/history/{job['prompt_id']}")
+        response.raise_for_status()
+        record = response.json().get(job["prompt_id"])
+    if not record:
+        return None
+    if record.get("status", {}).get("status_str") == "error":
+        job.update(status="failed", error="ComfyUI encoding failed: " + json.dumps(record.get("status", {}).get("messages", []))[-2200:])
+        try:
+            save_project(project)
+        except ProjectConflict:
+            pass  # Another window or agent saved first; the failure is still reported here.
+        raise ValueError(job["error"])
+    return record if record.get("status", {}).get("completed") else None
+
+
+def finish(project, config, progress):
+    if not project["job"].get("prompt_id"):
+        raise ValueError("Submission outcome is unknown. Check ComfyUI history before starting another build; this project will not automatically resubmit.")
+    for _ in range(43200):
+        progress("Waiting for this package's ComfyUI job. Existing jobs continue normally…")
+        record = poll(project, config)
+        if record:
+            return collect(project, record, progress)
+        time.sleep(2)
+    raise ValueError("Still waiting after 24 hours. Reopen the project to resume monitoring.")
+
+
+def collect(project, record, progress):
+    """Assemble a completed build into its export, once, even if a window and an agent both try."""
+    build_id = project["job"]["build_id"]
+    with project_lock(project, "build", wait=False):
+        # Start from the saved project so edits made while ComfyUI worked are kept.
+        project = load_project(project_dir(project) / "project.json")
+        job = project.get("job") or {}
+        if job.get("build_id") != build_id:
+            raise ValueError("This project's build changed while waiting; reopen the project and check its current build.")
+        if job["status"] == "complete":
+            return project
+        paths = []
+        for node_id in job["output_nodes"]:
+            values = record.get("outputs", {}).get(node_id, {}).get("text", [])
+            if len(values) != 1 or not Path(values[0]).is_file():
+                raise ValueError("Completed job did not return a readable RefMod for every reference")
+            paths.append(values[0])
+        job["status"] = "assembling"
+        save_project(project)
+        progress("Assembling and validating the final package…")
+        destination = Path(job["destination"])
+        if destination.exists():
+            # A previous process may have published the bundle before saving the manifest.
+            _, members = bundle_info(destination)
+            result = {"path": str(destination), "members": len(members), "tokens": None}
         else:
-            raise ValueError("Still waiting after 24 hours. Reopen the project to resume monitoring.")
-    paths = []
-    for node_id in job["output_nodes"]:
-        values = record.get("outputs", {}).get(node_id, {}).get("text", [])
-        if len(values) != 1 or not Path(values[0]).is_file():
-            raise ValueError("Completed job did not return a readable RefMod for every reference")
-        paths.append(values[0])
-    job["status"] = "assembling"
-    save_project(project)
-    progress("Assembling and validating the final package…")
-    destination = Path(job["destination"])
-    if destination.exists():
-        # A previous process may have published the bundle before saving the manifest.
-        from .core import bundle_info
-        _, members = bundle_info(destination)
-        result = {"path": str(destination), "members": len(members), "tokens": None}
-    else:
-        result = repack_bundle(paths, destination, job["name"], job["token_limit"])
-    result["created"] = datetime.now().isoformat()
-    if not any(e["path"] == result["path"] for e in project["exports"]):
-        project["exports"].append(result)
-    job["status"] = "complete"
-    save_project(project)
+            result = repack_bundle(paths, destination, job["name"], job["token_limit"])
+        result["created"] = datetime.now().isoformat()
+        if not any(e["path"] == result["path"] for e in project["exports"]):
+            project["exports"].append(result)
+        job["status"] = "complete"
+        save_project(project)
     progress("Package saved: " + str(destination))
     return project

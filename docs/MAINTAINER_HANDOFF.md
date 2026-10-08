@@ -30,7 +30,8 @@ Published prereleases are `v0.1.1-macos-arm64` and `v0.1.1-macos-intel`. The ARM
 | `refmod_builder/theme.py`, `icon.svg` | Desktop appearance and application icon |
 | `refmod_builder/core.py` | Settings, project manifests, source copies, validation, safetensors parsing and assembly |
 | `refmod_builder/backend.py` | ComfyUI capability checks, FFmpeg preprocessing, workflow construction, submission and recovery |
-| `tests/test_core.py`, `tests/test_ui.py` | Offline behavior and UI checks |
+| `refmod_builder/mcp_server.py` | `main` only: optional stdio MCP server for agents, sharing the project library |
+| `tests/test_core.py`, `tests/test_ui.py`, `tests/test_mcp.py` | Offline behavior, UI, and MCP checks |
 | `refmod_builder/smoke.py` | Mac-branch offline packaged-app check |
 | `tools/build_macos.py`, `tools/macos_entry.py` | Mac bundle creation and packaged entry point |
 | `packaging/macos/` | PyInstaller specification and dependency notices |
@@ -68,6 +69,8 @@ Preserve these existing behaviors:
 
 - Submission appends to the queue; it never requests priority, clears the queue, interrupts generation, or unloads models.
 - Stop monitoring stops the app's monitoring, not the backend job.
+- Project saves carry a `revision`; a stale save raises `ProjectConflict` instead of overwriting another window's or agent's edit. Build submission and assembly hold a per-project `.build.lock`.
+- The MCP `submit_build` tool requires `confirm=true`. Agents get no tools to delete projects, sources or exports, or to change settings.
 - A saved prompt ID allows Resume build to collect the existing result.
 - `submission_unknown` without a prompt ID blocks automatic resubmission. Inspect ComfyUI history before recovery to avoid duplicate work.
 - If backend output is inaccessible, correct the folder mount and resume; do not automatically re-encode.

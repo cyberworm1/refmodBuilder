@@ -31,3 +31,24 @@ def test_editor_roundtrip_and_order(tmp_path, monkeypatch):
     assert first.exists() and second.exists()
     window.close()
     app.processEvents()
+
+
+def test_window_reloads_agent_edits(tmp_path, monkeypatch):
+    monkeypatch.setattr(core, "LIBRARY", tmp_path / "projects")
+    monkeypatch.setattr(ui.Window, "check", lambda self: None)
+    app = QApplication.instance() or QApplication([])
+    window = ui.Window()
+    window.name.setText("Shared character")
+    window.save()
+    agent = core.load_project(core.project_dir(window.project) / "project.json")
+    agent["description"] = "Edited by an agent"
+    core.save_project(agent)
+    window.reload_if_changed()
+    assert window.description.toPlainText() == "Edited by an agent"
+    window.name.setText("Stale edit")
+    core.save_project(dict(agent, name="Agent name"))
+    monkeypatch.setattr(ui.QMessageBox, "warning", lambda *args: None)
+    window.save()
+    assert window.name.text() == "Agent name"
+    window.close()
+    app.processEvents()
